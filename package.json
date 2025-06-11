@@ -1,0 +1,19 @@
+{
+  "name": "base-xmtp-hackathon-server",
+  "version": "1.0.0",
+  "description": "Application Server for Base XMTP Hackathon",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tiovikram/base-xmtp-hackathon"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "tsc": "^2.0.4",
+    "typescript": "^5.8.3"
+  }
+}
