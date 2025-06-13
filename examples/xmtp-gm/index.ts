@@ -31,10 +31,19 @@ async function main() {
 
   console.log("Waiting for messages...");
   const stream = await client.conversations.streamAllMessages();
+  /*
+  let streamData = await stream.next();
+  while (!streamData.done) {
+    console.log("streamed Chunk ", streamData.value);
+    streamData = await stream.next();
+  }
+  */
 
+  let lastSentMessage = "";
   for await (const message of stream) {
+    console.log("Message ", message);
     if (
-      message?.senderInboxId.toLowerCase() === client.inboxId.toLowerCase() ||
+      message?.senderInboxId.toLowerCase() === client.inboxId.toLowerCase() &&
       message?.contentType?.typeId !== "text"
     ) {
       continue;
@@ -49,12 +58,17 @@ async function main() {
       continue;
     }
 
+    if (message.content === lastSentMessage) {
+      continue;
+    }
+
     const inboxState = await client.preferences.inboxStateFromInboxIds([
       message.senderInboxId,
     ]);
     const addressFromInboxId = inboxState[0].identifiers[0].identifier;
     console.log(`Sending "gm" response to ${addressFromInboxId}...`);
     await conversation.send("gm");
+    lastSentMessage = "gm";
 
     console.log("Waiting for messages...");
   }
