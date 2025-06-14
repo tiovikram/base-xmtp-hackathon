@@ -145,8 +145,19 @@ async function main() {
   let memberAddresses = new Set();
   let userMessages = new Array();
   let lastBet: Bet | null = null;
-
   let firstMessage = true;
+
+
+	/*
+	let streamedData = stream.next();
+	while (!streamedData.done) {
+		if (
+			!message || !seenMessages.has(message?.id) {
+		}
+		streamedData = stream.next();
+	}
+	*/
+
   for await (const message of stream) {
     if (seenMessages.has(message?.id)) {
       continue;
@@ -205,6 +216,10 @@ async function main() {
     }
 
     const messageContent = message?.content as string;
+		if (!messageContent) {
+			console.log("Received undefined or null message");
+			continue;	
+		}
     const command = messageContent.toLowerCase().trim();
 
     userMessages.push({ messageContent, memberAddress });
