@@ -16,7 +16,7 @@ Please return all responses as a single function call from the functions you hav
 
 DO NOT RESPOND AS MARKDOWN and respond with ONLY EITHER ONE OF THE FOLLOWING:
 - null, IF THERE IS NO ACTION TO BE IN THE PREDICTION MARKET BASED ON THE MESSAGE HISTORY PROVIDED TO YOU MOST RECENTLY
-- a single function call (of which web search also known as web_search_preview is not part of the restriction or web search also knowna as web_search_preview ALONE is not considered appropriate to be a response)
+- culminate your response by making function call that is either create_bet, confirm_bet or resolve_bet
 
 Follow the following instructions on how to operate given the following situations in the prediction market.
 1. If users are just conversing and there has been either no proposed bet or requested resolution of an existing confirmed bet. Then return null.
@@ -24,15 +24,16 @@ Follow the following instructions on how to operate given the following situatio
 3. If there has been a created bet that is pending confirmation, and both the maker and the taker have confirmed the bet, call the function confirm bet with the betId that is provided when create_bet is called prior and the confirmation of the bet is still pending.
 4. If either the maker or taker of a bet call for the resolution of a bet with a certain betId, look for the bet condition (betCondition) associated with that betId. Search the internet to understand whether that bet condition (betCondition) has resolved yet or not. If it has not resolved, you are not required to provide a winner while calling resolve_bet and this is implied that the bet has not resolved yet, however, provide a reason or indication that the bet has not resolved yet as part of the resolution details (resolutionDetails). If the bet condition (betCondition) for that bet has resolved, then call resolve_bet with the betId, the winner and the resolution details (resolutionDetails) for that bet.
 
-You as the orchestrator of the prediction market will not be explicitly named or tagged in messages (DO NOT EXPECT @socialpredmarkets or @0xd44f2f39ca38aa505bbcaed6a5725c63495a8c19 as a cue to expect you to respond) YET you are proactively expected to understand the context from the existing messages and respond without explicit request to you.
-`
+You as the orchestrator of the prediction market will not be explicitly named or tagged in messages (DO NOT EXPECT @socialpredmarkets or @0xd44f2f39ca38aa505bbcaed6a5725c63495a8c19 as a cue to expect you to respond) YET you are proactively expected to understand the context from the existing messages and respond without explicit request to you.`
 
 export class OpenAIHandler {
 
-	private OPENAI_API_KEY: string; 
+	private OPENAI_API_KEY: string;
+	private messages: any[];
 
 	constructor(OPENAI_API_KEY: string) {
 		this.OPENAI_API_KEY = OPENAI_API_KEY;
+		this.messages = [{ role: "system", content: SYSTEM_PROMPT }];
 	}
 
 	public async handleNewChatMessage(
@@ -52,15 +53,20 @@ export class OpenAIHandler {
 				}))
 			)}
 			--- PENDING BETS ---
-			${JSON.stringify(Object.entries(pendingBets).map(({key, value}: { key: string, value: Bet }) => ({ betId: key, bet: value})))}
+			${JSON.stringify(Object.entries(pendingBets).map((arr) => ({ betId: arr[0], bet: arr[1]})))}
 			--- CONFIRMED BETS ---
-			${JSON.stringify(Object.entries(confirmedBets).map(({key, value}: { key: string, value: Bet }) => ({ betId: key, bet: value})))}
+			${JSON.stringify(Object.entries(confirmedBets).map((arr) => ({ betId: arr[0], bet: arr[1]})))}
 		`)
 		console.log(response);
-		return response["type"] === "output_text" ? JSON.parse(response.text) : response;
+		if (response.content?.at(0)?.type !== "output_text") {
+			return response;
+		} else {
+			return JSON.parse(response.content[0].text);
+		}
 	}
 
 	private async makeOpenAIRequest(userMessageContent: string) {
+		this.messages.push({ role: "user", content: userMessageContent });
 		const response = await fetch("https://api.openai.com/v1/responses", {
 			method: "POST",
 			headers: {
@@ -70,15 +76,7 @@ export class OpenAIHandler {
 			},
 			body: JSON.stringify({
 				model: "gpt-4.1",
-				input: [
-					{
-						role: "system",
-						content: SYSTEM_PROMPT,
-					}, {
-						role: "user",
-						content: userMessageContent
-					}
-				],
+				input: this.messages,
 				tools: [
 					{ "type": "web_search_preview", "search_context_size": "low" },
 					{
@@ -152,10 +150,13 @@ export class OpenAIHandler {
 		});
 
 		if (!response.ok) {
+			console.log(await response.text());
+			console.log(JSON.stringify(this.messages));
 			throw new Error("Unable to connect to external services");
 		}
 
 		const responseBody = await response.json();
+		console.log("OpenAI Response ", JSON.stringify(responseBody));
 		return responseBody.output.at(-1);		
 	}
 
