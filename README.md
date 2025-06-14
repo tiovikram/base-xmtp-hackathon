@@ -1,150 +1,162 @@
-# XMTP agent examples
+# XMTP Prediction Market Agent
 
-This repository contains examples of agents that use the [XMTP](https://docs.xmtp.org/) network.
+An intelligent prediction market agent built on the [XMTP](https://docs.xmtp.org/) network that enables users to place bets on real-world outcomes in group chats. The agent automatically orchestrates the betting process, from bet creation to resolution using AI-powered web search.
 
-## Why XMTP?
+## Features
 
-- **End-to-end & compliant**: Data is encrypted in transit and at rest, meeting strict security and regulatory standards.
-- **Open-source & trustless**: Built on top of the [MLS](https://messaginglayersecurity.rocks/) protocol, it replaces trust in centralized certificate authorities with cryptographic proofs.
-- **Privacy & metadata protection**: Offers anonymous usage through SDKs and pseudonymous usage with nodes tracking minimum metadata.
-- **Decentralized**: Operates on a peer-to-peer network, eliminating single points of failure and ensuring continued operation even if some nodes go offline.
-- **Multi-agent**: Allows confidential communication between multiple agents and humans through MLS group chats.
+- **Automated Bet Creation**: AI detects when users agree on bet terms and automatically creates structured bets
+- **Smart Confirmation**: Tracks maker and taker confirmations before finalizing bets
+- **AI-Powered Resolution**: Uses web search to verify outcomes and determine winners
+- **USDC Transfers**: Automatically transfers winnings using on-chain transactions
+- **Group Chat Integration**: Works seamlessly in XMTP group conversations
 
-## Getting started
+## How It Works
 
-> [!TIP]
-> See the video [here](https://youtu.be/djRLnWUvwIA) for a quickstart guide.
-> See XMTP's [cursor rules](/.cursor/README.md) for vibe coding agents and best practices.
+1. **Chat & Agree**: Users discuss and agree on bet terms in the group chat
+2. **Auto-Detection**: The AI agent detects when both a maker and taker have agreed on specific terms
+3. **Bet Creation**: Agent prompts users to confirm the structured bet
+4. **Confirmation**: Both parties confirm the bet details
+5. **Resolution**: When requested, the agent searches the web to determine the outcome
+6. **Payout**: Winner automatically receives USDC transfer
+
+## Getting Started
 
 ### Requirements
 
 - Node.js v20 or higher
-- Yarn v4 or higher
-- Docker (optional, for local network)
+- npm or yarn
+- OpenAI API key
 
-### Environment variables
+### Environment Setup
 
-To run your XMTP agent, you must create a `.env` file with the following variables:
+Create a `.env` file with the following variables:
 
 ```bash
-WALLET_KEY= # the private key of the wallet
-ENCRYPTION_KEY= # encryption key for the local database
-XMTP_ENV=dev # local, dev, production
+WALLET_KEY=           # Private key of the agent's wallet
+ENCRYPTION_KEY=       # Encryption key for local database
+XMTP_ENV=dev         # Network environment (local, dev, production)
+NETWORK_ID=          # Network ID for USDC transfers
+INBOX_ID=            # Agent's inbox identifier
+OPENAI_API_KEY=      # OpenAI API key for AI processing
 ```
 
-You can generate random xmtp keys with the following command:
+You can generate random XMTP keys with:
 
 ```bash
 yarn gen:keys
 ```
 
-> [!WARNING]
-> Running the `gen:keys` command will append keys to your existing `.env` file.
-
-### Run the agent
+### Installation & Running
 
 ```bash
-# git clone repo
-git clone https://github.com/ephemeraHQ/xmtp-agent-examples.git
-# go to the folder
-cd xmtp-agent-examples
-# install packages
-yarn
-# generate random xmtp keys (optional)
-yarn gen:keys
-# run the example
-yarn dev
+# Clone and setup
+git clone <repository-url>
+cd xmtp-prediction-market
+npm install
+
+# Run the agent
+npm run dev
 ```
 
-### Work in local network
+## Agent Behavior
 
-`dev` and `production` networks are hosted by XMTP, while `local` network is hosted by yourself.
+The prediction market agent operates autonomously by:
 
-- 1. Install docker
-- 2. Start the XMTP service and database
+### 1. Monitoring Conversations
+- Listens to all group chat messages
+- Maintains conversation history for context
+- Tracks bet states (pending, confirmed, resolved)
 
-```bash
-./dev/up
+### 2. Bet Creation Process
+The agent creates bets when it detects:
+- A clear bet condition/outcome to predict
+- An agreed-upon amount
+- A maker (proposer) and taker (accepter)
+
+Example conversation that triggers bet creation:
+```
+User A: "I bet $10 that Bitcoin will hit $100k by end of 2025"
+User B: "You're on! I'll take that bet"
 ```
 
-- 3. Change the .env file to use the local network
+### 3. Bet Confirmation
+After creation, both parties must confirm:
+- Agent prompts for confirmation with bet details
+- Tracks confirmations from both maker and taker
+- Moves bet from "pending" to "confirmed" state
 
-```bash
-XMTP_ENV = local
-```
+### 4. Resolution Process
+When users request resolution:
+- Agent searches the web for current information about the bet condition
+- Uses AI to determine if the condition has been met
+- Declares winner based on factual outcomes
+- Initiates USDC transfer to winner
 
-### Deployment
+## Technical Architecture
 
-We have a guide for deploying the agent on [Railway](https://github.com/ephemeraHQ/xmtp-agent-examples/discussions/77).
+### Core Components
 
-## Basic usage
+**OpenAIHandler**: Manages AI interactions for:
+- Parsing conversation context
+- Detecting bet opportunities
+- Resolving bet outcomes with web search
 
-### Listening and sending messages
+**USDCHandler**: Handles cryptocurrency transfers:
+- Creates transfer calls for bet payouts
+- Integrates with XMTP wallet functionality
 
-These are the steps to initialize the XMTP listener and send messages.
+**Message Processing**: 
+- Streams all group messages
+- Maintains conversation state
+- Prevents duplicate processing
 
-```tsx
-// import the xmtp sdk
-import { Client, type XmtpEnv, type Signer } from "@xmtp/node-sdk";
+### AI System Prompts
 
-// encryption key, must be consistent across runs
-const encryptionKey: Uint8Array = ...;
-const signer: Signer = ...;
-const env: XmtpEnv = "dev";
+The agent uses sophisticated prompts to:
+- Understand betting context from natural conversation
+- Extract structured bet data (amount, condition, participants)
+- Search and verify real-world outcomes
+- Make fair resolution decisions
 
-// create the client
-const client = await Client.create(signer, {encryptionKey, env });
-// sync the client to get the latest messages
-await client.conversations.sync();
+## Bet Data Structure
 
-// listen to all messages
-const stream = await client.conversations.streamAllMessages();
-for await (const message of  stream) {
-  // ignore messages from the agent
-  if (message?.senderInboxId === client.inboxId ) continue;
-  // get the conversation by id
-  const conversation = await client.conversations.getConversationById(message.conversationId);
-  // send a message from the agent
-  await conversation.send("gm");
+```typescript
+type Bet = {
+  amount: number;        // Bet amount in USDC
+  betCondition: string;  // What is being predicted
+  maker: string;         // Address of bet proposer
+  taker: string;         // Address of bet accepter
 }
 ```
 
-### Getting the address of a user
+## Network Configuration
 
-Each user has a unique inboxId for retrieving their associated addresses (identifiers). One inboxId can have multiple identifiers like passkeys or EVM wallet addresses.
+- **Development**: Uses XMTP's hosted dev network
+- **Production**: Uses XMTP's production network  
+- **Local**: Run your own XMTP network with Docker
 
-> [!NOTE]
-> The inboxId differs from the address—it's a user identifier, while the address identifies the user's wallet. Not all users have associated addresses.
+## Security & Privacy
 
-```tsx
-const inboxState = await client.preferences.inboxStateFromInboxIds([
-  message.senderInboxId,
-]);
-const addressFromInboxId = inboxState[0].identifiers[0].identifier;
-```
+- **End-to-end encryption**: All messages encrypted in transit and at rest
+- **Decentralized**: No single point of failure
+- **Private keys**: Agent wallet key never shared
+- **Autonomous operation**: Minimal human intervention required
 
-## Examples
+## Example Workflow
 
-- [xmtp-gm](/examples/xmtp-gm/): A simple agent that replies to all text messages with "gm".
-- [xmtp-gpt](/examples/xmtp-gpt/): An example using GPT API's to answer messages.e
-- [xmtp-nft-gated-group](/examples/xmtp-nft-gated-group/): Add members to a group based on an NFT
-- [xmtp-coinbase-agentkit](/examples/xmtp-coinbase-agentkit/): Agent that uses a CDP for gassless USDC on base
-- [xmtp-transactions](/examples/xmtp-transactions/): Use XMTP content types to send transactions
-- [xmtp-gaia](/examples/xmtp-gaia/): Agent that uses a CDP for gassless USDC on base
-- [xmtp-smart-wallet](/examples/xmtp-smart-wallet/): Agent that uses a smart wallet to send messages
-- [xmtp-attachment-content-type](/examples/xmtp-attachment-content-type/): Agent that sends images
-- [xmtp-queue-dual-client](/examples/xmtp-queue-dual-client/): Agent that uses two clients to send and receive messages
-- [xmtp-multiple-workers](/examples/xmtp-multiple-workers/): Agent that uses multiple workers to send and receive messages
-- [xmtp-stream-restart](/examples/xmtp-stream-restart/): Agent that restarts the stream when it fails
-- [xmtp-group-welcome](/examples/xmtp-group-welcome/): Agent that sends a welcome message when its added and to new members of a group
+1. Users join group chat with prediction market agent
+2. Agent sends welcome message explaining functionality
+3. Users discuss potential bet: "Will it rain tomorrow?"
+4. Agent detects agreement and prompts bet creation
+5. Both users confirm bet terms
+6. Next day, user asks agent to resolve the bet
+7. Agent searches weather data and determines outcome
+8. Winner receives automatic USDC transfer
 
-These examples are outside of this monorepo and showcase how to use and deploy XMTP in different environments.
+## Why XMTP?
 
-- [gm-bot](https://github.com/xmtp/gm-bot): Simple standalone agent that replies to all messages with "gm"
-- [xmtp-mini-app-example](https://github.com/ephemeraHQ/xmtp-mini-app): A simple mini app that interacts with a group
-
-## Web inbox
-
-Interact with the XMTP network using [xmtp.chat](https://xmtp.chat), the official web inbox for developers.
-
-![](/examples/xmtp-gm/screenshot.png)
+- **Compliance**: Meets security and regulatory standards
+- **Open Source**: Built on MLS protocol with cryptographic proofs
+- **Privacy**: Anonymous/pseudonymous usage options
+- **Multi-agent**: Supports confidential group communications
+- **Decentralized**: Peer-to-peer network resilience
