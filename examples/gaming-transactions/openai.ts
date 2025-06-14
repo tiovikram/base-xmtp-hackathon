@@ -150,8 +150,6 @@ export class OpenAIHandler {
 		});
 
 		if (!response.ok) {
-			console.log(await response.text());
-			console.log(JSON.stringify(this.messages));
 			throw new Error("Unable to connect to external services");
 		}
 

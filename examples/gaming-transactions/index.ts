@@ -13,6 +13,59 @@ import { Client, type XmtpEnv } from "@xmtp/node-sdk";
 import { USDCHandler } from "./usdc";
 import { OpenAIHandler, type Bet } from "./openai";
 
+const RESOLVE_SYSTEM_PROMPT = `You are a helpful assistant. Given a JSON object representing a bet, determine the winner based on the outcome of the bet condition.
+
+Here is the JSON object format:
+- "amount": A number representing the bet value.
+- "betCondition": A string defining the condition of the bet.
+- "maker": A string with the ID of the bet maker.
+- "taker": A string with the ID of the bet taker.
+
+Your task is to find the outcome related to the "betCondition" by using available information, and then decide whether the "maker" or "taker" wins the bet.
+
+# Steps
+
+1. **Analyze the Bet Condition**: Evaluate the betCondition to understand what historical fact or event must be verified.
+2. **Determine the Outcome**: 
+   - Search for verifiable facts or information related to the betCondition.
+   - Determine the factual outcome necessary to assess the bet.
+3. **Decide the Winner**:
+   - Compare the determined outcome against the betCondition.
+   - Based on this comparison, decide which participant (either the maker or taker) has won the bet.
+   
+# Output Format
+
+Please return all responses in JSON. Do not respond in markdown.
+Your response should be formatted as 
+{
+  "winner": { "type": "string" },
+},
+"required": [ "winner" ]
+
+# Examples
+
+Example:
+
+**Input**:
+json
+{
+  "amount": 0.01,
+  "betCondition": "The Berlin Wall collapsed before 1950.",
+  "maker": "0x5b3d1a877a73dbe2ef56e4237a7305d4f7dd095f",
+  "taker": "0xc6b2ad1c324aca7aea78307aca74ddc3f6d55c0e"
+}
+
+**Search result**: "The Berlin Wall fell on 9 November 1989"
+
+**Response**: 
+{"winner": "0xc6b2ad1c324aca7aea78307aca74ddc3f6d55c0e"}
+
+# Notes
+
+- Make sure to analyze the bet condition thoroughly to avoid errors in deciding the winner.
+- Only return the ID of the winner in your response with no additional text.
+`;
+
 /* Get the wallet key associated to the public key of
  * the agent and the encryption key for the local db
  * that stores your agent's messages */
@@ -124,10 +177,7 @@ async function main() {
     if (firstMessage) {
       firstMessage = false;
       lastSentMessageId =
-        await conversation.send(`Welcome to Social Prediction Markets:
-      
-      To place a bet from the conversation: type /createbet
-      To see if a certain prediction has resolved: type /resolve`);
+        await conversation.send(`Welcome to Amigos Prediction Markets:\n\n\nYou can chat with friends and place bets. When you and a friend have agreed on the terms of a bet Amigos will automatically suggest confirming the bet.\n\nYou can also resolve bets by asking Amigos in the group chat.`);
       seenMessages.add(lastSentMessageId);
     }
 
@@ -154,7 +204,7 @@ async function main() {
 
     userMessages.push({ messageContent, memberAddress });
 		openAIHandler.handleNewChatMessage(userMessages, pendingBets, confirmedBets).then(
-			(response: object | null) => {
+			async (response: object | null) => {
 				if (response !== null) {
 					if (response.name === "create_bet") {
 						const createBetParams = JSON.parse(response["arguments"]) as Bet;	
@@ -171,11 +221,69 @@ async function main() {
 							conversation.send(`Unable to find a pending bet with betId: ${betId}`).then((messageId: string) => seenMessages.add(messageId));
 						}
 					} else if (response.name === "resolve_bet") {
-						const { betId, winner, resolutionDetails } = JSON.parse(response["arguments"]);
+						let { betId, winner, resolutionDetails } = JSON.parse(response["arguments"]);
 						if (
 							confirmedBets[betId] !== undefined
 						) {
 							const bet = confirmedBets[betId];
+							const response = await fetch("https://api.openai.com/v1/responses", {
+								method: "POST",
+								headers: {
+									"Content-Type": "application/json",
+									Accept: "application/json",
+									Authorization: `Bearer ${OPENAI_API_KEY}`,
+								},
+								body: JSON.stringify({
+									model: "gpt-4.1",
+									tools: [{ type: "web_search_preview", search_context_size: "low" }],
+									input: [
+										{
+											role: "system",
+											content: `${RESOLVE_SYSTEM_PROMPT}`,
+										},
+										{
+											role: "user",
+											content: `Bet Data: ${JSON.stringify(bet)}`,
+										},
+									],
+								}),
+							});
+
+							if (!response.ok) {
+								conversation.send(
+									"Failed to prepare bet (OpenAI API did not return Status: OK)",
+								);
+							} else {
+								const responseData = await response.json();
+								console.log(JSON.stringify(responseData));
+								const winner = JSON.parse(
+									responseData.output.at(-1).content[0].text,
+								).winner;
+								console.log("GPT determines winner as:", winner);
+
+								console.log("GPT before last bet", bet);
+
+								if (winner !== bet.maker && winner !== bet.taker) {
+									conversation
+										.send("Unable to determine winner of bet")
+										.then((messageId: string) => seenMessages.add(messageId));
+								} else {
+									conversation
+										.send(`Winner: ${winner}`)
+										.then((messageId: string) => seenMessages.add(messageId));
+									const amountInDecimals = Math.floor(bet.amount * Math.pow(10, 6));
+									const walletSendCalls = usdcHandler.createUSDCTransferCalls(
+										bet.maker !== winner ? bet.maker : bet.taker,
+										winner,
+										amountInDecimals,
+									);
+									conversation
+										.send(walletSendCalls, ContentTypeWalletSendCalls)
+										.then((messageId: string) => seenMessages.add(messageId));
+									seenMessages.add(message?.id);
+								}		
+							}
+							/*
 							if (winner !== bet.maker && winner !== bet.taker) {
 								conversation.send(`Unable to confirm winner of bet with betId ${betId} due to ${resolutionDetails}`).then((messageId: string) => seenMessages.add(messageId));
 							} else {
@@ -191,6 +299,7 @@ async function main() {
 									.send(walletSendCalls, ContentTypeWalletSendCalls)
 									.then((messageId: string) => seenMessages.add(messageId));
 							}
+							*/
 						} else {
 							conversation.send(`Unable to find a confirmed bet with betId: ${betId}`).then((messageId: string) => seenMessages.add(messageId));
 						}
