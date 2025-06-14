@@ -11,6 +11,7 @@ import {
 } from "@xmtp/content-type-wallet-send-calls";
 import { Client, type XmtpEnv } from "@xmtp/node-sdk";
 import { USDCHandler } from "./usdc";
+import { OpenAIHandler, type Bet } from "./openai";
 
 /* Get the wallet key associated to the public key of
  * the agent and the encryption key for the local db
@@ -31,82 +32,6 @@ const {
   "OPENAI_API_KEY",
 ]);
 
-const SYSTEM_PROMPT = `You are a helpful assistant. You will be given a group chat history where users are formulating a bet.
-Please return all responses in JSON. Do not respond in markdown.
-Your response should be formatted as 
-{
-  "amount": { "type": "number" },
-  "betCondition": { "type": "string" },
-  "maker": { "type": "string" },
-  "taker": { "type": "string" }
-},
-"required": [ "amount", "betCondition", "maker", "taker" ]
-
-IF ANY OF THE NUMBER FIELDS ARE 0 OR ANY OF THE STRING FIELDS ARE EMPTY STRING, AS IN YOU DO NOT HAVE A VALID VALUE FOR THAT FIELD, PLEASE ABSTAIN ATTEMPTING TO MAKE THE JSON RESPONSE AND JUST RETURN null
-EVERY BET MUST HAVE BOTH A MAKER AND A TAKER WHO APPROVE IF EITHER IS MISSING RETURN null INSTEAD OF THE JSON RESPONSE
-`;
-const USER_REQUEST = "Here are the previous user messages in the group chat: ";
-
-const RESOLVE_SYSTEM_PROMPT = `You are a helpful assistant. Given a JSON object representing a bet, determine the winner based on the outcome of the bet condition.
-
-Here is the JSON object format:
-- "amount": A number representing the bet value.
-- "betCondition": A string defining the condition of the bet.
-- "maker": A string with the ID of the bet maker.
-- "taker": A string with the ID of the bet taker.
-
-Your task is to find the outcome related to the "betCondition" by using available information, and then decide whether the "maker" or "taker" wins the bet.
-
-# Steps
-
-1. **Analyze the Bet Condition**: Evaluate the betCondition to understand what historical fact or event must be verified.
-2. **Determine the Outcome**: 
-   - Search for verifiable facts or information related to the betCondition.
-   - Determine the factual outcome necessary to assess the bet.
-3. **Decide the Winner**:
-   - Compare the determined outcome against the betCondition.
-   - Based on this comparison, decide which participant (either the maker or taker) has won the bet.
-   
-# Output Format
-
-Please return all responses in JSON. Do not respond in markdown.
-Your response should be formatted as 
-{
-  "winner": { "type": "string" },
-},
-"required": [ "winner" ]
-
-# Examples
-
-Example:
-
-**Input**:
-json
-{
-  "amount": 0.01,
-  "betCondition": "The Berlin Wall collapsed before 1950.",
-  "maker": "0x5b3d1a877a73dbe2ef56e4237a7305d4f7dd095f",
-  "taker": "0xc6b2ad1c324aca7aea78307aca74ddc3f6d55c0e"
-}
-
-**Search result**: "The Berlin Wall fell on 9 November 1989"
-
-**Response**: 
-{"winner": "0xc6b2ad1c324aca7aea78307aca74ddc3f6d55c0e"}
-
-# Notes
-
-- Make sure to analyze the bet condition thoroughly to avoid errors in deciding the winner.
-- Only return the ID of the winner in your response with no additional text.
-`;
-
-type Bet = {
-  amount: number;
-  betCondition: string;
-  maker: string;
-  taker: string;
-};
-
 async function main() {
   console.log(WALLET_KEY);
   console.log(ENCRYPTION_KEY);
@@ -115,6 +40,7 @@ async function main() {
   console.log(INBOX_ID);
 
   const usdcHandler = new USDCHandler(NETWORK_ID);
+	const openAIHandler = new OpenAIHandler(OPENAI_API_KEY);
   /* Create the signer using viem and parse the encryption key for the local db */
   const signer = createSigner(WALLET_KEY);
   const dbEncryptionKey = getEncryptionKeyFromHex(ENCRYPTION_KEY);
@@ -146,13 +72,19 @@ async function main() {
   let userMessages = new Array();
   let lastBet: Bet | null = null;
   let firstMessage = true;
-
+	let pendingBets: Record<string, Bet> = {};
+	let confirmedBets: Record<string, Bet> = {};
 
 	/*
 	let streamedData = stream.next();
 	while (!streamedData.done) {
 		if (
-			!message || !seenMessages.has(message?.id) {
+			!message ||
+			!seenMessages.has(message?.id) ||
+			message.senderInboxId.toLowerCase() === client.inboxId.toLowerCase() ||
+			message.contentType.typeId !== "text" ||
+			message.senderInboxId === INBOX_ID
+		) {
 		}
 		streamedData = stream.next();
 	}
@@ -203,8 +135,6 @@ async function main() {
       message.senderInboxId,
     ]);
 
-    //console.log("inbox state", JSON.stringify(inboxState));
-
     const memberAddress = inboxState[0].identifiers[0].identifier;
 
     if (!memberAddress) {
@@ -220,9 +150,55 @@ async function main() {
 			console.log("Received undefined or null message");
 			continue;	
 		}
-    const command = messageContent.toLowerCase().trim();
+		seenMessages.add(message?.id);
 
     userMessages.push({ messageContent, memberAddress });
+		openAIHandler.handleNewChatMessage(userMessages, pendingBets, confirmedBets).then(
+			(response: object | null) => {
+				if (response !== null) {
+					if (response.name === "create_bet") {
+						const createBetParams = JSON.parse(response["arguments"]) as Bet;	
+						conversation.send(`Would you be interested on placing a bet on ${createBetParams.betCondition}\n\nBet Details:\n- Amount: ${createBetParams.amount}\n- Maker: ${createBetParams.maker}\n- Taker: ${createBetParams.taker}`).then((messageId: string) => seenMessages.add(messageId));
+						pendingBets[response["call_id"]] = createBetParams;	
+					} else if (response.name === "confirm_bet") {
+						const { betId } = JSON.parse(response["arguments"]); 
+						if (pendingBets[betId] !== undefined) {
+							const bet = pendingBets[betId];
+							confirmedBets[betId] = bet;
+							delete pendingBets[betId];
+							conversation.send(`Confirmed bet with betId ${betId}. Please find the bet details below.\n\nBet Details:\n- Amount: ${bet.amount}\n- Maker: ${bet.maker}\n- Taker: ${bet.taker}`).then((messageId: string) => seenMessages.add(messageId));
+						} else {
+							conversation.send(`Unable to find a pending bet with betId: ${betId}`).then((messageId: string) => seenMessages.add(messageId));
+						}
+					} else if (response.name === "resolve_bet") {
+						const { betId, winner, resolutionDetails } = JSON.parse(response["arguments"]);
+						if (
+							confirmedBets[betId] !== undefined
+						) {
+							const bet = confirmedBets[betId];
+							if (winner !== bet.maker && winner !== bet.taker) {
+								conversation.send(`Unable to confirm winner of bet with betId ${betId} due to ${resolutionDetails}`).then((messageId: string) => seenMessages.add(messageId));
+							} else {
+								conversation.send(`Winner of bet with betId ${betId} is ${winner}.\n\nBet Resolution Details: ${resolutionDetails}`).then((messageId: string) => seenMessages.add(messageId));
+								delete confirmedBets[betId];
+								const amountInDecimals = Math.floor(bet.amount * Math.pow(10, 6));
+								const walletSendCalls = usdcHandler.createUSDCTransferCalls(
+									bet.maker !== winner ? bet.maker : bet.taker,
+									winner,
+									amountInDecimals,
+								);
+								conversation
+									.send(walletSendCalls, ContentTypeWalletSendCalls)
+									.then((messageId: string) => seenMessages.add(messageId));
+							}
+						} else {
+							conversation.send(`Unable to find a confirmed bet with betId: ${betId}`).then((messageId: string) => seenMessages.add(messageId));
+						}
+					}
+				}
+			}
+		);
+		/*
     try {
       if (command.startsWith("/createbet")) {
         if (userMessages.length <= 1) {
@@ -363,6 +339,7 @@ async function main() {
       seenMessages.add(message?.id);
       seenMessages.add(lastSentMessageId);
     }
+		*/
   }
 }
 
