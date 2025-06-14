@@ -177,7 +177,16 @@ async function main() {
     if (firstMessage) {
       firstMessage = false;
       lastSentMessageId =
-        await conversation.send(`Welcome to Amigos Prediction Markets:\n\n\nYou can chat with friends and place bets. When you and a friend have agreed on the terms of a bet Amigos will automatically suggest confirming the bet.\n\nYou can also resolve bets by asking Amigos in the group chat.`);
+      await conversation.send(
+        `🎉 Welcome to Amigos Prediction Markets!
+      
+      Chat with friends and place bets on anything you care about.
+      Once you and a friend agree on the terms, Amigos will automatically prompt you to confirm the bet.
+      
+      When it’s time to settle the score, just ask Amigos in the group chat to help resolve the bet. ⚖️
+      
+      Let the games begin! 🥳`
+      );
       seenMessages.add(lastSentMessageId);
     }
 
@@ -208,7 +217,21 @@ async function main() {
 				if (response !== null) {
 					if (response.name === "create_bet") {
 						const createBetParams = JSON.parse(response["arguments"]) as Bet;	
-						conversation.send(`Would you be interested on placing a bet on ${createBetParams.betCondition}\n\nBet Details:\n- Amount: ${createBetParams.amount}\n- Maker: ${createBetParams.maker}\n- Taker: ${createBetParams.taker}`).then((messageId: string) => seenMessages.add(messageId));
+						conversation
+  .send(
+    `🎲 New Bet Challenge!
+
+Would you be interested in placing a bet on:  
+${createBetParams.betCondition}
+
+📄 Bet Details:  
+💰 Amount: ${createBetParams.amount}  
+🤝 Maker: ${createBetParams.maker}  
+🆚 Taker: ${createBetParams.taker}
+
+👉 Are you in?`
+  )
+  .then((messageId: string) => seenMessages.add(messageId));
 						pendingBets[response["call_id"]] = createBetParams;	
 					} else if (response.name === "confirm_bet") {
 						const { betId } = JSON.parse(response["arguments"]); 
@@ -216,7 +239,19 @@ async function main() {
 							const bet = pendingBets[betId];
 							confirmedBets[betId] = bet;
 							delete pendingBets[betId];
-							conversation.send(`Confirmed bet with betId ${betId}. Please find the bet details below.\n\nBet Details:\n- Amount: ${bet.amount}\n- Maker: ${bet.maker}\n- Taker: ${bet.taker}`).then((messageId: string) => seenMessages.add(messageId));
+							conversation
+  .send(
+    `✅ Bet Confirmed!
+
+📄 Bet ID: ${betId}
+
+💰 Amount: ${bet.amount}  
+🤝 Maker: ${bet.maker}  
+🆚 Taker: ${bet.taker}
+
+Good luck to both sides! 🍀`
+  )
+  .then((messageId: string) => seenMessages.add(messageId));
 						} else {
 							conversation.send(`Unable to find a pending bet with betId: ${betId}`).then((messageId: string) => seenMessages.add(messageId));
 						}
@@ -269,7 +304,7 @@ async function main() {
 										.then((messageId: string) => seenMessages.add(messageId));
 								} else {
 									conversation
-										.send(`Winner: ${winner}`)
+										.send(`🏆 Winner: ${winner}`)
 										.then((messageId: string) => seenMessages.add(messageId));
 									const amountInDecimals = Math.floor(bet.amount * Math.pow(10, 6));
 									const walletSendCalls = usdcHandler.createUSDCTransferCalls(
