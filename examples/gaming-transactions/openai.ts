@@ -42,8 +42,6 @@ export class OpenAIHandler {
 		confirmedBets: Record<string, Bet>
 	): Promise<object | null>{
 		// Add any data about pending bets and confirmed bets into the prompt context as well
-		console.log("pendingBets ", JSON.stringify(pendingBets));
-		console.log("confirmedBets ", JSON.stringify(confirmedBets));
 		const response = await this.makeOpenAIRequest(`
 			--- CONVERSATION HISTORY ---
 			${JSON.stringify(
@@ -57,7 +55,6 @@ export class OpenAIHandler {
 			--- CONFIRMED BETS ---
 			${JSON.stringify(Object.entries(confirmedBets).map((arr) => ({ betId: arr[0], bet: arr[1]})))}
 		`)
-		console.log(response);
 		if (response.content?.at(0)?.type !== "output_text") {
 			return response;
 		} else {
@@ -154,7 +151,6 @@ export class OpenAIHandler {
 		}
 
 		const responseBody = await response.json();
-		console.log("OpenAI Response ", JSON.stringify(responseBody));
 		return responseBody.output.at(-1);		
 	}
 

@@ -86,12 +86,6 @@ const {
 ]);
 
 async function main() {
-  console.log(WALLET_KEY);
-  console.log(ENCRYPTION_KEY);
-  console.log(XMTP_ENV);
-  console.log(NETWORK_ID);
-  console.log(INBOX_ID);
-
   const usdcHandler = new USDCHandler(NETWORK_ID);
 	const openAIHandler = new OpenAIHandler(OPENAI_API_KEY);
   /* Create the signer using viem and parse the encryption key for the local db */
@@ -106,13 +100,10 @@ async function main() {
 
   const identifier = await signer.getIdentifier();
   const agentAddress = identifier.identifier;
-  console.log("identifier::::", identifier);
-  console.log("agentAddress::::", agentAddress);
 
   void logAgentDetails(client as Client);
 
   /* Sync the conversations from the network to update the local db */
-  console.log("✓ Syncing conversations...");
   await client.conversations.sync();
 
   console.log("Waiting for messages...");
@@ -290,7 +281,6 @@ Good luck to both sides! 🍀`
 								);
 							} else {
 								const responseData = await response.json();
-								console.log(JSON.stringify(responseData));
 								const winner = JSON.parse(
 									responseData.output.at(-1).content[0].text,
 								).winner;
